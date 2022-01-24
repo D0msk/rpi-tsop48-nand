@@ -5,7 +5,8 @@
     (made out of "360-Clip based 8-bit NAND reader" by pharos)
 
     Copyright (C)	2016 littlebalup
-					2019 skypiece
+			2019 skypiece
+			2022 D0msk
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -33,17 +34,17 @@
 
 // #define DEBUG 1
 
-#define PAGE_SIZE 2112 // (2K + 64)Byte
-#define BLOCK_SIZE 135168 // 64 pages (128K + 4K)Byte
+#define PAGE_SIZE 4224 // (4K + 128)Byte
+#define BLOCK_SIZE 270336 // 64 pages (256K + 8K)Byte
 #define MAX_WAIT_READ_BUSY	1000000
 
-/* For Raspberry B+ :*/
-// #define BCM2708_PERI_BASE	0x20000000
-// #define GPIO_BASE	 	(BCM2708_PERI_BASE + 0x200000)
+/* For Raspberry B+ and Zero W :*/
+#define BCM2708_PERI_BASE	0x20000000
+#define GPIO_BASE	 	(BCM2708_PERI_BASE + 0x200000)
 
 /* For Raspberry 2B and 3B :*/
-#define BCM2736_PERI_BASE        0x3F000000
-#define GPIO_BASE                (BCM2736_PERI_BASE + 0x200000) /* GPIO controller */
+//#define BCM2736_PERI_BASE        0x3F000000
+//#define GPIO_BASE                (BCM2736_PERI_BASE + 0x200000) /* GPIO controller */
 
 // IMPORTANT: BE VERY CAREFUL TO CONNECT VCC TO P1-01 (3.3V) AND *NOT* P1-02 (5V) !!
 // IMPORTANT: MAY BE YOU NEED EXTERNAL 1.8V for modern NANDs
@@ -319,6 +320,14 @@ void print_id(unsigned char id[5])
  			}
  			break;
  		}
+ 		case 0x98: {
+ 			strcpy(maker, "Toshiba");
+ 			switch(id[1]) {
+ 				case 0xDC: strcpy(device, "TC58BVG2S0HTA00"); break;
+ 				default: strcpy(device, "unknown");
+ 			}
+ 			break;
+ 		}
  		case 0x2C: {
  			strcpy(maker, "Micron");
  			switch(id[1]) {
@@ -347,38 +356,55 @@ void print_id(unsigned char id[5])
 		case 10: block_size = 256 * 1024; break;
 		case 11: block_size = 521 * 1024; break;
 	}
-	switch(fourthbits[2]) {
-		case 0: ras_size = 8; break; // for 512 bytes
-		case 1: ras_size = 16; break; // for 512 bytes
+	if (device == "TC58BVG2S0HTA00")
+		ras_size = 128;
+	else {	
+		switch(fourthbits[2]) { // RAS = Redundant Area Size
+			case 0: ras_size = 8; break; // for 512 bytes
+			case 1: ras_size = 16; break; // for 512 bytes
+		}
 	}
 	switch(fourthbits[6]) {
 		case 0: orga = 8; break; // bits
 		case 1: orga = 16; break; // bits
 	}
-	switch(fourthbits[7] * 10 + fourthbits[3]) {
-		case 00: strcpy(serial_access, "50ns/30ns minimum"); break;
-		case 10: strcpy(serial_access, "25ns minimum"); break;
-		case 01: strcpy(serial_access, "unknown (reserved)"); break;
-		case 11: strcpy(serial_access, "unknown (reserved)"); break;
+	if (device == "TC58BVG2S0HTA00")
+		strcpy(serial_access, "unknown (reserved)");
+	else {
+		switch(fourthbits[7] * 10 + fourthbits[3]) {
+			case 00: strcpy(serial_access, "50ns/30ns minimum"); break;
+			case 10: strcpy(serial_access, "25ns minimum"); break;
+			case 01: strcpy(serial_access, "unknown (reserved)"); break;
+			case 11: strcpy(serial_access, "unknown (reserved)"); break;
+		}
 	}
+
 
 	for(bit = 0; bit < 8; ++bit)
 		fifthbits[bit] = (id[4] >> bit) & 1;
-	switch(fifthbits[3] * 10 + fifthbits[2]) {
-		case 00: plane_number = 1; break;
-		case 01: plane_number = 2; break;
-		case 10: plane_number = 4; break;
-		case 11: plane_number = 8; break;
+	if (device == "TC58BVG2S0HTA00")
+		plane_number = 1;
+	else {
+		switch(fifthbits[3] * 10 + fifthbits[2]) {
+			case 00: plane_number = 1; break;
+			case 01: plane_number = 2; break;
+			case 10: plane_number = 4; break;
+			case 11: plane_number = 8; break;
+		}
 	}
-	switch(fifthbits[6] * 100 + fifthbits[5] * 10 + fifthbits[4]) {
-		case 000: plane_size = 64 / 8 * 1024 * 1024; break; // 64 megabits
-		case 001: plane_size = 128 / 8 * 1024 * 1024; break; // 128 megabits
-		case 010: plane_size = 256 / 8 * 1024 * 1024; break; // 256 megabits
-		case 011: plane_size = 512 / 8 * 1024 * 1024; break; // 512 megabits
-		case 100: plane_size = 1024 / 8 * 1024 * 1024; break; // 1 gigabit
-		case 101: plane_size = 2048 / 8 * 1024 * 1024; break; // 2 gigabits
-		case 110: plane_size = 4096 / 8 * 1024 * 1024; break; // 4 gigabits
-		case 111: plane_size = 8192 / 8 * 1024 * 1024; break; // 8 gigabits
+	if (device == "TC58BVG2S0HTA00")
+		plane_size = 4096 / 8 * 1024 * 1024; // 4 gigabits
+	else {
+		switch(fifthbits[6] * 100 + fifthbits[5] * 10 + fifthbits[4]) {
+			case 000: plane_size = 64 / 8 * 1024 * 1024; break; // 64 megabits
+			case 001: plane_size = 128 / 8 * 1024 * 1024; break; // 128 megabits
+			case 010: plane_size = 256 / 8 * 1024 * 1024; break; // 256 megabits
+			case 011: plane_size = 512 / 8 * 1024 * 1024; break; // 512 megabits
+			case 100: plane_size = 1024 / 8 * 1024 * 1024; break; // 1 gigabit
+			case 101: plane_size = 2048 / 8 * 1024 * 1024; break; // 2 gigabits
+			case 110: plane_size = 4096 / 8 * 1024 * 1024; break; // 4 gigabits
+			case 111: plane_size = 8192 / 8 * 1024 * 1024; break; // 8 gigabits
+		}
 	}
 
 	nand_size = plane_number * plane_size;
