@@ -1,0 +1,20 @@
+# rpi-tsop48-nand
+Raspberry Pi 8-bit raw NAND reader
+
+rpi-raw-nand-v3.c
+Raspberry Pi Zero W pinout
+RB : GPIO 3
+RE : GPIO 6
+CE : GPIO 22
+CLE : GPIO 5
+ALE : GPIO 4
+WE : GPIO 7
+WP : GPIO 2
+I/00 : GPIO 8
+I/01 : GPIO 9
+I/02 : GPIO 10
+I/03 : GPIO 11
+I/04 : GPIO 12
+I/05 : GPIO 13
+I/06 : GPIO 14
+I/07 : GPIO 15

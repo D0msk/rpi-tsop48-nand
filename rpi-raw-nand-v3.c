@@ -5,8 +5,8 @@
     (made out of "360-Clip based 8-bit NAND reader" by pharos)
 
     Copyright (C)	2016 littlebalup
-			2019 skypiece
-			2022 D0msk
+					2019 skypiece
+					2022 D0msk
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -63,6 +63,7 @@ int data_to_gpio_map[8] = { 8, 9, 10, 11, 12, 13, 14, 15 }; // 8 is NAND IO 0, e
 volatile unsigned int *gpio;
 
 int read_id(unsigned char id[5]);
+int getECCStat();
 int read_pages(int first_page_number, int number_of_pages, char *outfile, int write_spare);
 int write_pages(int first_page_number, int number_of_pages, char *infile);
 int erase_blocks(int first_block_number, int number_of_blocks);
@@ -178,7 +179,7 @@ int main(int argc, char **argv)
 { 
 	int mem_fd;
 
-	printf("Raspberry GPIO raw NAND flasher by pharos, littlebalup, skypiece\n\n");
+	printf("Raspberry GPIO raw NAND flasher by pharos, littlebalup, skypiece, D0msk\n\n");
 
 	if ((mem_fd = open("/dev/mem", O_RDWR|O_SYNC)) < 0) {
 		perror("open /dev/mem, are you root?");
@@ -219,6 +220,7 @@ usage:
 		    " <delay> used to slow down operations (50 should work, increase if bad reads)\n\n" \
 		    "Commands:\n" \
 		    " read_id (no arguments)                        : read and decrypt chip ID\n" \
+		    " getECCStat (no arguments)                     : read ECC status of all sectors (TC58)\n" \
 		    " read_full <page #> <# of pages> <output file> : read N pages including spare\n" \
 		    " read_data <page #> <# of pages> <output file> : read N pages, discard spare\n" \
 		    " write_full <page #> <# of pages> <input file> : write N pages, including spare\n" \
@@ -236,6 +238,10 @@ usage:
 
 	if (strcmp(argv[2], "read_id") == 0) {
 		return read_id(NULL);
+	}
+	
+	if (strcmp(argv[2], "getECCStat") == 0) {
+		return getECCStat();
 	}
 
 	if (strcmp(argv[2], "read_full") == 0) {
@@ -356,7 +362,7 @@ void print_id(unsigned char id[5])
 		case 10: block_size = 256 * 1024; break;
 		case 11: block_size = 521 * 1024; break;
 	}
-	if (device == "TC58BVG2S0HTA00")
+	if (strcmp("TC58BVG2S0HTA00", device) == 0)
 		ras_size = 128;
 	else {	
 		switch(fourthbits[2]) { // RAS = Redundant Area Size
@@ -368,7 +374,7 @@ void print_id(unsigned char id[5])
 		case 0: orga = 8; break; // bits
 		case 1: orga = 16; break; // bits
 	}
-	if (device == "TC58BVG2S0HTA00")
+	if (strcmp("TC58BVG2S0HTA00", device) == 0)
 		strcpy(serial_access, "unknown (reserved)");
 	else {
 		switch(fourthbits[7] * 10 + fourthbits[3]) {
@@ -382,7 +388,7 @@ void print_id(unsigned char id[5])
 
 	for(bit = 0; bit < 8; ++bit)
 		fifthbits[bit] = (id[4] >> bit) & 1;
-	if (device == "TC58BVG2S0HTA00")
+	if (strcmp("TC58BVG2S0HTA00", device) == 0)
 		plane_number = 1;
 	else {
 		switch(fifthbits[3] * 10 + fifthbits[2]) {
@@ -392,7 +398,7 @@ void print_id(unsigned char id[5])
 			case 11: plane_number = 8; break;
 		}
 	}
-	if (device == "TC58BVG2S0HTA00")
+	if (strcmp("TC58BVG2S0HTA00", device) == 0)
 		plane_size = 4096 / 8 * 1024 * 1024; // 4 gigabits
 	else {
 		switch(fifthbits[6] * 100 + fifthbits[5] * 10 + fifthbits[4]) {
@@ -485,6 +491,111 @@ int read_id(unsigned char id[5])
 		error_msg((char*)"all five ID bytes are identical, this is not normal");
 		return -1;
 	}
+	return 0;
+}
+
+int getECCStat()
+{
+	unsigned char buf[5];
+	unsigned int i, bit;
+	unsigned *firstsector = (unsigned*)malloc(sizeof(unsigned) * 8);
+	unsigned *secondsector = (unsigned*)malloc(sizeof(unsigned) * 8);
+	unsigned *thirdsector = (unsigned*)malloc(sizeof(unsigned) * 8);
+	unsigned *fourthsector = (unsigned*)malloc(sizeof(unsigned) * 8);
+	unsigned *fifthsector = (unsigned*)malloc(sizeof(unsigned) * 8);
+	unsigned *sixthsector = (unsigned*)malloc(sizeof(unsigned) * 8);
+	unsigned *seventhsector = (unsigned*)malloc(sizeof(unsigned) * 8);
+	unsigned *eighthsector = (unsigned*)malloc(sizeof(unsigned) * 8);
+
+	GPIO_SET_1(COMMAND_LATCH_ENABLE);
+	shortpause();
+	GPIO_SET_0(N_WRITE_ENABLE);
+	set_data_direction_out(); GPIO_DATA8_OUT(0x7A);
+	shortpause();
+	GPIO_SET_1(N_WRITE_ENABLE);
+	shortpause();set_data_direction_in();
+	GPIO_SET_0(COMMAND_LATCH_ENABLE);
+	shortpause();
+
+	for (i = 0; i < 8; i++) {
+		GPIO_SET_0(N_READ_ENABLE);
+		shortpause();
+		buf[i] = GPIO_DATA8_IN(); //
+		GPIO_SET_1(N_READ_ENABLE);
+		shortpause();
+	}
+		
+	printf("ECC status code running...");
+	printf("\n");
+	printf("Raw ECC status data: ");
+	for (i = 0; i < 8; i++)
+		printf("0x%02X ", buf[i]);
+	printf("\n");
+
+	for(bit = 0; bit < 8; ++bit)
+		firstsector[bit] = (buf[0] >> bit) & 1;
+
+	for(bit = 0; bit < 8; ++bit)
+		secondsector[bit] = (buf[1] >> bit) & 1;
+
+	for(bit = 0; bit < 8; ++bit)
+		thirdsector[bit] = (buf[2] >> bit) & 1;
+		
+	for(bit = 0; bit < 8; ++bit)
+		fourthsector[bit] = (buf[3] >> bit) & 1;		
+		
+	for(bit = 0; bit < 8; ++bit)
+		fifthsector[bit] = (buf[4] >> bit) & 1;		
+		
+	for(bit = 0; bit < 8; ++bit)
+		sixthsector[bit] = (buf[5] >> bit) & 1;		
+		
+	for(bit = 0; bit < 8; ++bit)
+		seventhsector[bit] = (buf[6] >> bit) & 1;		
+
+	for(bit = 0; bit < 8; ++bit)
+		eighthsector[bit] = (buf[7] >> bit) & 1;
+
+	printf("1st sector ECC status:     |");
+	for(bit = 8; bit--;)
+        printf("%u|", firstsector[bit]);
+    printf(" (0x%02X)\n", buf[0]);
+
+	printf("2nd sector ECC status:     |");
+	for(bit = 8; bit--;)
+        printf("%u|", secondsector[bit]);
+    printf(" (0x%02X)\n", buf[1]);
+
+	printf("3rd sector ECC status:     |");
+	for(bit = 8; bit--;)
+        printf("%u|", thirdsector[bit]);
+    printf(" (0x%02X)\n", buf[2]);
+	
+	printf("4th sector ECC status:     |");
+	for(bit = 8; bit--;)
+        printf("%u|", fourthsector[bit]);
+    printf(" (0x%02X)\n", buf[3]);
+	
+	printf("5th sector ECC status:     |");
+	for(bit = 8; bit--;)
+        printf("%u|", fifthsector[bit]);
+    printf(" (0x%02X)\n", buf[4]);
+	
+	printf("6th sector ECC status:     |");
+	for(bit = 8; bit--;)
+        printf("%u|", sixthsector[bit]);
+    printf(" (0x%02X)\n", buf[5]);
+	
+	printf("7th sector ECC status:     |");
+	for(bit = 8; bit--;)
+        printf("%u|", seventhsector[bit]);
+    printf(" (0x%02X)\n", buf[6]);
+		
+	printf("8th sector ECC status:     |");
+	for(bit = 8; bit--;)
+        printf("%u|", eighthsector[bit]);
+    printf(" (0x%02X)\n", buf[7]);
+								
 	return 0;
 }
 
